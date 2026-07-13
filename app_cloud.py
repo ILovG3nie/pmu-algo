@@ -146,7 +146,7 @@ def calc_signaux(g):
     return g
 
 
-def ajoute_value(df, marge):
+def ajoute_value(df, marge, cote_max=12.0):
     df = df.copy()
     df["p_marche"] = np.nan
     for _, idx in df.groupby(["date_course", "numero_reunion", "numero_course"]).groups.items():
@@ -156,7 +156,10 @@ def ajoute_value(df, marge):
                 win_probs_from_odds(cotes.fillna(cotes.max()).values))
     df["cote_pivot"] = (1.0 / df["p_top3"]).round(2)
     df["value"] = df["p_top3"] / df["p_marche"] - 1.0
-    df["VALUE_ok"] = (df["value"] > marge) & (df["p_marche"] >= 0.10)
+    # ✅ seulement sur une value CREDIBLE : marché >= 12 % ET cote raisonnable
+    # (les gros outsiders = ratio qui explose = erreur du modèle, pas de l'edge)
+    df["VALUE_ok"] = ((df["value"] > marge) & (df["p_marche"] >= 0.12)
+                      & (df["cote_finale"] <= cote_max))
     if "heure_depart_ms" in df.columns:
         df["restant"] = df["heure_depart_ms"] / 1000.0 - time.time()
     else:
@@ -200,9 +203,10 @@ dates = sorted(df["date_course"].astype(str).unique())
 date_sel = st.sidebar.selectbox("Jour", dates, index=len(dates) - 1) if len(dates) > 1 else dates[0]
 st.sidebar.markdown(f"**Courses du {date_sel}**")
 marge = st.sidebar.slider("Marge de value mini", 0.0, 0.5, 0.15, 0.05)
+cote_max_value = st.sidebar.slider("Cote gagnant max pour signaler ✅", 5, 30, 12)
 top_n = st.sidebar.slider("Nombre de value à afficher (onglet 2h)", 3, 20, 5)
 fenetre_h = st.sidebar.slider("Fenêtre de départ (heures)", 1, 6, 2)
-df = ajoute_value(df, marge)
+df = ajoute_value(df, marge, cote_max_value)
 
 onglet_top, onglet_course, onglet_carte = st.tabs(
     [f"⏱️ Top {top_n} value ({fenetre_h}h)", "🎯 Prédictions & Value", "📋 Carte (Geny)"])
@@ -244,7 +248,8 @@ if st.sidebar.button("🔄 Rafraîchir les cotes en direct"):
         if cf.notna().sum() >= 4:
             g["p_marche"] = harville_top3(win_probs_from_odds(cf.fillna(cf.max()).values))
             g["value"] = g["p_top3"] / g["p_marche"] - 1.0
-            g["VALUE_ok"] = (g["value"] > marge) & (g["p_marche"] >= 0.10)
+            g["VALUE_ok"] = ((g["value"] > marge) & (g["p_marche"] >= 0.12)
+                             & (g["cote_finale"] <= cote_max_value))
         st.sidebar.success(f"Cotes mises à jour ({len(live)}).")
     else:
         st.sidebar.warning("Cotes live indisponibles.")
