@@ -225,7 +225,8 @@ with onglet_top:
             "Value %": (100 * cand["value"]).round(0),
             "Départ dans": cand["restant"].apply(fmt_restant),
         })
-        st.dataframe(top, hide_index=True, use_container_width=True)
+        st.dataframe(top, hide_index=True, use_container_width=True, column_config={
+            "Value %": st.column_config.NumberColumn(format="%+.0f")})
 
 # ---- Sélecteur de course (pour les 2 autres onglets) ----------------------
 dfj = df[df["date_course"].astype(str) == date_sel]
@@ -263,11 +264,12 @@ with onglet_course:
         "Value %": (100 * g["value"]).round(0),
         "✔": np.where(g["VALUE_ok"], "✅", ""), "Signaux": g["sig"],
     })
-    forts = g["fort"].values
-    sty = aff.style.apply(
-        lambda col: ["color:#d00; font-weight:700" if forts[k] else "" for k in range(len(col))],
-        subset=["Signaux"])
-    st.dataframe(sty, hide_index=True, use_container_width=True)
+    st.dataframe(aff, hide_index=True, use_container_width=True, column_config={
+        "P(Top3)": st.column_config.NumberColumn(format="%.1f"),
+        "Cote pivot placé": st.column_config.NumberColumn(format="%.2f"),
+        "Cote": st.column_config.NumberColumn(format="%.1f"),
+        "Value %": st.column_config.NumberColumn(format="%+.0f"),
+    })
     st.markdown(
         "**Légende des signaux** (aide à la lecture, à croiser avec ton œil) :\n"
         "- **🔥steam** : cote qui raccourcit (argent tardif souvent informé) · **↘dérive** : cote qui monte\n"
@@ -292,5 +294,7 @@ with onglet_carte:
         "Cote": carte["cote_finale"],
         "P(Top3)": (100 * carte["p_top3"]).round(1),
     })
-    st.dataframe(tab, hide_index=True, use_container_width=True)
+    st.dataframe(tab, hide_index=True, use_container_width=True, column_config={
+        "P(Top3)": st.column_config.NumberColumn(format="%.1f"),
+        "Cote": st.column_config.NumberColumn(format="%.1f")})
     st.caption("Déf. = déferrage (D4/DA/DP/P4…). P(Top3) = probabilité de placer (modèle).")
