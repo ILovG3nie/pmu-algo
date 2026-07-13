@@ -85,17 +85,21 @@ def fmt_restant(sec):
 
 
 def calc_signaux(g):
-    """Signaux d'analyse par cheval, comparés au peloton de la course."""
+    """Signaux par cheval, comparés au peloton. Deux niveaux : normal, et FORT
+    (préfixé 🔴, marque la ligne comme 'fort' pour l'afficher en rouge)."""
     g = g.copy()
     rec = g["h_meilleure_reduc_hist"] if "h_meilleure_reduc_hist" in g else pd.Series(dtype=float)
     best = rec.min() if len(rec) and rec.notna().any() else np.nan
+    med = rec.median() if len(rec) and rec.notna().any() else np.nan
 
     def tags(r):
-        s = []
+        s, fort = [], False
         cd, cf = r.get("cote_depart"), r.get("cote_finale")
         drift = (cd / cf) if (pd.notna(cd) and pd.notna(cf) and cf) else np.nan
         if pd.notna(drift):
-            if drift >= 1.15:
+            if drift >= 1.40:
+                s.append("🔴🔥steam++"); fort = True
+            elif drift >= 1.15:
                 s.append("🔥steam")
             elif drift <= 0.85:
                 s.append("↘dérive")
@@ -104,22 +108,41 @@ def calc_signaux(g):
         elif r.get("premier_dp") == 1 or r.get("premier_da") == 1:
             s.append("1er déf.")
         rr = r.get("h_meilleure_reduc_hist")
-        if pd.notna(rr) and pd.notna(best) and rr <= best * 1.005:
-            s.append("⏱record")
-        if (r.get("h_nb_meme_ferrure_hist") or 0) >= 3 and (r.get("h_taux_top3_meme_ferrure_hist") or 0) >= 0.5:
+        if pd.notna(rr) and pd.notna(best):
+            if rr <= best * 1.002 and pd.notna(med) and rr <= med * 0.985:
+                s.append("🔴RECORD"); fort = True          # bien meilleur que le peloton
+            elif rr <= best * 1.005:
+                s.append("⏱record")
+        nf, tf = (r.get("h_nb_meme_ferrure_hist") or 0), (r.get("h_taux_top3_meme_ferrure_hist") or 0)
+        if nf >= 5 and tf >= 0.70:
+            s.append("🔴ferrage"); fort = True
+        elif nf >= 3 and tf >= 0.50:
             s.append("ferrage✓")
-        if pd.notna(r.get("mus_moy_pos5")) and r.get("mus_moy_pos5") <= 3:
-            s.append("forme+")
-        if (r.get("drv_taux_top3_hist") or 0) >= 0.40:
+        mp = r.get("mus_moy_pos5")
+        if pd.notna(mp):
+            if mp <= 1.8:
+                s.append("🔴forme"); fort = True
+            elif mp <= 3:
+                s.append("forme+")
+        dv = r.get("drv_taux_top3_hist") or 0
+        if dv >= 0.55:
+            s.append("🔴driver"); fort = True
+        elif dv >= 0.40:
             s.append("driver+")
-        if (r.get("cd_nb_hist") or 0) >= 3 and (r.get("cd_taux_top3_hist") or 0) >= 0.5:
+        cn, ct = (r.get("cd_nb_hist") or 0), (r.get("cd_taux_top3_hist") or 0)
+        if cn >= 5 and ct >= 0.70:
+            s.append("🔴tandem"); fort = True
+        elif cn >= 3 and ct >= 0.50:
             s.append("tandem✓")
         nbh = r.get("h_nb_sur_hippo_hist") or 0
-        if nbh >= 2 and (r.get("h_top3_sur_hippo_hist") or 0) / nbh >= 0.5:
+        th = (r.get("h_top3_sur_hippo_hist") or 0) / nbh if nbh else 0
+        if nbh >= 3 and th >= 0.70:
+            s.append("🔴hippo"); fort = True
+        elif nbh >= 2 and th >= 0.50:
             s.append("hippo✓")
-        return "  ".join(s)
+        return pd.Series([" ".join(s), fort])
 
-    g["sig"] = g.apply(tags, axis=1)
+    g[["sig", "fort"]] = g.apply(tags, axis=1)
     return g
 
 
@@ -240,7 +263,11 @@ with onglet_course:
         "Value %": (100 * g["value"]).round(0),
         "✔": np.where(g["VALUE_ok"], "✅", ""), "Signaux": g["sig"],
     })
-    st.dataframe(aff, hide_index=True, use_container_width=True)
+    forts = g["fort"].values
+    sty = aff.style.apply(
+        lambda col: ["color:#d00; font-weight:700" if forts[k] else "" for k in range(len(col))],
+        subset=["Signaux"])
+    st.dataframe(sty, hide_index=True, use_container_width=True)
     st.markdown(
         "**Légende des signaux** (aide à la lecture, à croiser avec ton œil) :\n"
         "- **🔥steam** : cote qui raccourcit (argent tardif souvent informé) · **↘dérive** : cote qui monte\n"
