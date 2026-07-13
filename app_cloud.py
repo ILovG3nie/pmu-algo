@@ -84,26 +84,49 @@ def fmt_restant(sec):
     return f"{h}h{m:02d}" if h else f"{m} min"
 
 
-def signaux(r):
-    s = []
-    cd, cf = r.get("cote_depart"), r.get("cote_finale")
-    drift = (cd / cf) if (pd.notna(cd) and pd.notna(cf) and cf) else np.nan
-    if pd.notna(drift):
-        if drift >= 1.15:
-            s.append("🔥 steam")
-        elif drift <= 0.85:
-            s.append("↘ dérive")
-    if r.get("premier_d4") == 1:
-        s.append("1er déf.4")
-    elif r.get("premier_dp") == 1 or r.get("premier_da") == 1:
-        s.append("1er déf.")
-    return "  ".join(s)
+def calc_signaux(g):
+    """Signaux d'analyse par cheval, comparés au peloton de la course."""
+    g = g.copy()
+    rec = g["h_meilleure_reduc_hist"] if "h_meilleure_reduc_hist" in g else pd.Series(dtype=float)
+    best = rec.min() if len(rec) and rec.notna().any() else np.nan
+
+    def tags(r):
+        s = []
+        cd, cf = r.get("cote_depart"), r.get("cote_finale")
+        drift = (cd / cf) if (pd.notna(cd) and pd.notna(cf) and cf) else np.nan
+        if pd.notna(drift):
+            if drift >= 1.15:
+                s.append("🔥steam")
+            elif drift <= 0.85:
+                s.append("↘dérive")
+        if r.get("premier_d4") == 1:
+            s.append("1er déf.4")
+        elif r.get("premier_dp") == 1 or r.get("premier_da") == 1:
+            s.append("1er déf.")
+        rr = r.get("h_meilleure_reduc_hist")
+        if pd.notna(rr) and pd.notna(best) and rr <= best * 1.005:
+            s.append("⏱record")
+        if (r.get("h_nb_meme_ferrure_hist") or 0) >= 3 and (r.get("h_taux_top3_meme_ferrure_hist") or 0) >= 0.5:
+            s.append("ferrage✓")
+        if pd.notna(r.get("mus_moy_pos5")) and r.get("mus_moy_pos5") <= 3:
+            s.append("forme+")
+        if (r.get("drv_taux_top3_hist") or 0) >= 0.40:
+            s.append("driver+")
+        if (r.get("cd_nb_hist") or 0) >= 3 and (r.get("cd_taux_top3_hist") or 0) >= 0.5:
+            s.append("tandem✓")
+        nbh = r.get("h_nb_sur_hippo_hist") or 0
+        if nbh >= 2 and (r.get("h_top3_sur_hippo_hist") or 0) / nbh >= 0.5:
+            s.append("hippo✓")
+        return "  ".join(s)
+
+    g["sig"] = g.apply(tags, axis=1)
+    return g
 
 
 def ajoute_value(df, marge):
     df = df.copy()
     df["p_marche"] = np.nan
-    for _, idx in df.groupby(["numero_reunion", "numero_course"]).groups.items():
+    for _, idx in df.groupby(["date_course", "numero_reunion", "numero_course"]).groups.items():
         cotes = df.loc[idx, "cote_finale"]
         if cotes.notna().sum() >= 4:
             df.loc[idx, "p_marche"] = harville_top3(
@@ -150,8 +173,9 @@ except Exception:
              "puis commiter dans le dépôt).")
     st.stop()
 
-date_str = str(df["date_course"].iloc[0])
-st.sidebar.markdown(f"**Courses du {date_str}**")
+dates = sorted(df["date_course"].astype(str).unique())
+date_sel = st.sidebar.selectbox("Jour", dates, index=len(dates) - 1) if len(dates) > 1 else dates[0]
+st.sidebar.markdown(f"**Courses du {date_sel}**")
 marge = st.sidebar.slider("Marge de value mini", 0.0, 0.5, 0.15, 0.05)
 top_n = st.sidebar.slider("Nombre de value à afficher (onglet 2h)", 3, 20, 5)
 fenetre_h = st.sidebar.slider("Fenêtre de départ (heures)", 1, 6, 2)
@@ -181,14 +205,15 @@ with onglet_top:
         st.dataframe(top, hide_index=True, use_container_width=True)
 
 # ---- Sélecteur de course (pour les 2 autres onglets) ----------------------
-reunions = df[["numero_reunion", "numero_course", "hippodrome", "nom_prix"]].drop_duplicates().reset_index(drop=True)
+dfj = df[df["date_course"].astype(str) == date_sel]
+reunions = dfj[["numero_reunion", "numero_course", "hippodrome", "nom_prix"]].drop_duplicates().reset_index(drop=True)
 labels = [f"R{r.numero_reunion}C{r.numero_course} — {r.hippodrome}" for _, r in reunions.iterrows()]
 i = st.sidebar.selectbox("Course", options=range(len(reunions)), format_func=lambda k: labels[k])
 sel = reunions.iloc[i]
-g = df[(df.numero_reunion == sel.numero_reunion) & (df.numero_course == sel.numero_course)].copy()
+g = dfj[(dfj.numero_reunion == sel.numero_reunion) & (dfj.numero_course == sel.numero_course)].copy()
 
 if st.sidebar.button("🔄 Rafraîchir les cotes en direct"):
-    live = fetch_cotes_live(date_str, sel.numero_reunion, sel.numero_course)
+    live = fetch_cotes_live(date_sel, sel.numero_reunion, sel.numero_course)
     if live:
         g["cote_finale"] = g["numero"].map(live).fillna(g["cote_finale"])
         cf = g["cote_finale"]
@@ -202,7 +227,7 @@ if st.sidebar.button("🔄 Rafraîchir les cotes en direct"):
 
 g = g.sort_values("p_top3", ascending=False).reset_index(drop=True)
 g["rang"] = g.index + 1
-g["sig"] = g.apply(signaux, axis=1)
+g = calc_signaux(g)
 
 with onglet_course:
     st.subheader(f"R{sel.numero_reunion}C{sel.numero_course} — {sel.hippodrome} "
@@ -217,11 +242,13 @@ with onglet_course:
     })
     st.dataframe(aff, hide_index=True, use_container_width=True)
     st.markdown(
-        "**Légende** — 🔥 steam : la cote raccourcit (argent tardif, souvent informé) · "
-        "↘ dérive : la cote monte (cheval délaissé) · **1er déf.4** : premier déferré des 4 · "
-        "**1er déf.** : premier déferré partiel · **✅** : value crédible (écart modèle/marché "
-        "au-dessus de ta marge, hors purs outsiders). "
-        "**Cote pivot placé** = 1/P(Top3) : la cote placé minimale pour parier.")
+        "**Légende des signaux** (aide à la lecture, à croiser avec ton œil) :\n"
+        "- **🔥steam** : cote qui raccourcit (argent tardif souvent informé) · **↘dérive** : cote qui monte\n"
+        "- **⏱record** : meilleur chrono passé du peloton (ou à 0,5 %) · **forme+** : place moyenne ≤ 3 sur ses dernières sorties\n"
+        "- **ferrage✓** : ≥ 50 % de placé avec la ferrure du jour (≥ 3 courses) · **1er déf.4 / 1er déf.** : premier déferré (peut transformer)\n"
+        "- **driver+** : driver ≥ 40 % de placé · **tandem✓** : couple cheval×driver ≥ 50 % (≥ 3 courses) · **hippo✓** : ≥ 50 % de placé sur cet hippodrome\n"
+        "- **✅** (colonne ✔) : value crédible (modèle > marché au-dessus de ta marge, hors purs outsiders)\n"
+        "- **Cote pivot placé** = 1/P(Top3) : la cote placé minimale pour que le pari soit intéressant.")
 
 with onglet_carte:
     carte = g.sort_values("numero").copy()
