@@ -187,6 +187,32 @@ def fetch_cotes_live(date_str, numR, numC):
     return res
 
 
+def voisins_meme_reunion(reunions, cur):
+    """Index de la course précédente / suivante DANS LA MÊME réunion (ou None)."""
+    R = reunions.iloc[cur]["numero_reunion"]
+    idxs = [k for k in range(len(reunions)) if reunions.iloc[k]["numero_reunion"] == R]
+    k = idxs.index(cur)
+    prev = idxs[k - 1] if k > 0 else None
+    nxt = idxs[k + 1] if k < len(idxs) - 1 else None
+    return prev, nxt
+
+
+def barre_nav(titre, reunions, cur, prefixe):
+    """Titre à gauche + flèches ◀ ▶ en haut à droite (course précédente/suivante
+    de la même réunion). Synchronisé avec le sélecteur de la barre latérale."""
+    prev, nxt = voisins_meme_reunion(reunions, cur)
+    c1, c2, c3 = st.columns([8, 1, 1])
+    c1.subheader(titre)
+    if c2.button("◀", key=f"{prefixe}_prev", disabled=prev is None,
+                 use_container_width=True, help="Course précédente (même réunion)"):
+        st.session_state["cur"] = prev
+        st.rerun()
+    if c3.button("▶", key=f"{prefixe}_next", disabled=nxt is None,
+                 use_container_width=True, help="Course suivante (même réunion)"):
+        st.session_state["cur"] = nxt
+        st.rerun()
+
+
 # ---------------------------------------------------------------------------
 st.title("🏇 Value — courses de trot")
 if not acces_autorise():
@@ -234,10 +260,23 @@ with onglet_top:
 
 # ---- Sélecteur de course (pour les 2 autres onglets) ----------------------
 dfj = df[df["date_course"].astype(str) == date_sel]
-reunions = dfj[["numero_reunion", "numero_course", "hippodrome", "nom_prix"]].drop_duplicates().reset_index(drop=True)
+reunions = (dfj[["numero_reunion", "numero_course", "hippodrome", "nom_prix"]]
+            .drop_duplicates()
+            .sort_values(["numero_reunion", "numero_course"])
+            .reset_index(drop=True))
 labels = [f"R{r.numero_reunion}C{r.numero_course} — {r.hippodrome}" for _, r in reunions.iterrows()]
-i = st.sidebar.selectbox("Course", options=range(len(reunions)), format_func=lambda k: labels[k])
-sel = reunions.iloc[i]
+
+# index de course courant, PARTAGÉ entre le sélecteur latéral et les flèches
+if st.session_state.get("date_prev") != date_sel:
+    st.session_state["cur"] = 0                      # reset si on change de jour
+    st.session_state["date_prev"] = date_sel
+cur = min(st.session_state.get("cur", 0), len(reunions) - 1)
+i_sb = st.sidebar.selectbox("Course", options=range(len(reunions)),
+                            index=cur, format_func=lambda k: labels[k])
+if i_sb != cur:                                      # l'utilisateur a changé via le menu
+    cur = i_sb
+st.session_state["cur"] = cur
+sel = reunions.iloc[cur]
 g = dfj[(dfj.numero_reunion == sel.numero_reunion) & (dfj.numero_course == sel.numero_course)].copy()
 
 if st.sidebar.button("🔄 Rafraîchir les cotes en direct"):
@@ -259,8 +298,9 @@ g["rang"] = g.index + 1
 g = calc_signaux(g)
 
 with onglet_course:
-    st.subheader(f"R{sel.numero_reunion}C{sel.numero_course} — {sel.hippodrome} "
-                 f"— {sel.get('nom_prix', '') or ''}  ({g['heure'].iloc[0] if len(g) else ''})")
+    titre = (f"R{sel.numero_reunion}C{sel.numero_course} — {sel.hippodrome} "
+             f"— {sel.get('nom_prix', '') or ''}  ({g['heure'].iloc[0] if len(g) else ''})")
+    barre_nav(titre, reunions, cur, "course")
     aff = pd.DataFrame({
         "Rg": g["rang"], "N°": g["numero"].astype("Int64"),
         "Cheval": g["cheval"], "Driver": g["driver"],
@@ -285,6 +325,8 @@ with onglet_course:
         "- **Cote pivot placé** = 1/P(Top3) : la cote placé minimale pour que le pari soit intéressant.")
 
 with onglet_carte:
+    barre_nav(f"R{sel.numero_reunion}C{sel.numero_course} — {sel.hippodrome}",
+              reunions, cur, "geny")
     carte = g.sort_values("numero").copy()
     tab = pd.DataFrame({
         "N°": carte["numero"].astype("Int64"),
