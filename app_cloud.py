@@ -213,6 +213,20 @@ def barre_nav(titre, reunions, cur, prefixe):
         st.rerun()
 
 
+def mise_conseillee(value, p_top3, value_ok):
+    """Mise en UNITÉS (1 à 3), seulement sur une value crédible, dosée par la
+    confiance (proba de placer) et l'ampleur de la value. C'est une aide au
+    DOSAGE, pas un système gagnant (le placé reste négatif net de prélèvement)."""
+    if not value_ok:
+        return 0
+    u = 1
+    if value >= 0.25:          # value nette
+        u += 1
+    if p_top3 >= 0.45:         # confiance (proba de placer élevée)
+        u += 1
+    return min(u, 3)
+
+
 # ---------------------------------------------------------------------------
 st.title("🏇 Value — courses de trot")
 if not acces_autorise():
@@ -234,8 +248,9 @@ top_n = st.sidebar.slider("Nombre de value à afficher (onglet 2h)", 3, 20, 5)
 fenetre_h = st.sidebar.slider("Fenêtre de départ (heures)", 1, 6, 2)
 df = ajoute_value(df, marge, cote_max_value)
 
-onglet_top, onglet_course, onglet_carte = st.tabs(
-    [f"⏱️ Top {top_n} value ({fenetre_h}h)", "🎯 Prédictions & Value", "📋 Carte (Geny)"])
+onglet_top, onglet_plan, onglet_course, onglet_carte = st.tabs(
+    [f"⏱️ Top {top_n} value ({fenetre_h}h)", "🎫 Plan du jour",
+     "🎯 Prédictions & Value", "📋 Carte (Geny)"])
 
 # ---- Onglet Top 5 value des 2 prochaines heures ---------------------------
 with onglet_top:
@@ -253,6 +268,7 @@ with onglet_top:
             "Hippodrome": cand["hippodrome"],
             "Heure": cand["heure"],
             "Value %": (100 * cand["value"]).round(0),
+            "Mise": cand.apply(lambda r: f"{mise_conseillee(r['value'], r['p_top3'], True)}u", axis=1),
             "Départ dans": cand["restant"].apply(fmt_restant),
         })
         st.dataframe(top, hide_index=True, use_container_width=True, column_config={
@@ -277,6 +293,47 @@ if i_sb != cur:                                      # l'utilisateur a changé v
     cur = i_sb
 st.session_state["cur"] = cur
 sel = reunions.iloc[cur]
+
+# ---- Onglet Plan du jour (toutes les values de la journée) ----------------
+with onglet_plan:
+    st.subheader(f"🎫 Plan de jeu — {date_sel}")
+    vals = dfj[dfj["VALUE_ok"]].copy()
+    if vals.empty:
+        st.info("Aucune value crédible aujourd'hui avec tes réglages "
+                "(baisse la marge ou monte la cote max dans la barre latérale).")
+    else:
+        cnt = vals.groupby(["numero_reunion", "numero_course"]).size()
+        vals["n_val"] = [int(cnt[(r.numero_reunion, r.numero_course)]) for r in vals.itertuples()]
+        vals["mise_u"] = vals.apply(
+            lambda r: mise_conseillee(r["value"], r["p_top3"], True), axis=1)
+        ncourses, nmulti = len(cnt), int((cnt >= 2).sum())
+        ntickets, nunites = len(vals), int(vals["mise_u"].sum())
+        st.markdown(f"**{ntickets} tickets** sur **{ncourses} courses** "
+                    f"(dont **{nmulti}** à plusieurs values) · total **{nunites} unités** "
+                    f"— soit {nunites}× ta mise de base.")
+        vals = vals.sort_values(["n_val", "value"], ascending=[False, False])
+        plan = pd.DataFrame({
+            "Course": "R" + vals["numero_reunion"].astype(str) + "C" + vals["numero_course"].astype(str),
+            "Hippo": vals["hippodrome"],
+            "Heure": vals["heure"] if "heure" in vals else "",
+            "N°": vals["numero"].astype("Int64"),
+            "Cheval": vals["cheval"],
+            "Cote": vals["cote_finale"],
+            "P(Top3)": (100 * vals["p_top3"]).round(1),
+            "Value %": (100 * vals["value"]).round(0),
+            "Values/course": vals["n_val"].astype(int),
+            "Mise": vals["mise_u"].astype(int).astype(str) + "u",
+        })
+        st.dataframe(plan, hide_index=True, use_container_width=True, column_config={
+            "P(Top3)": st.column_config.NumberColumn(format="%.1f"),
+            "Cote": st.column_config.NumberColumn(format="%.1f"),
+            "Value %": st.column_config.NumberColumn(format="%+.0f")})
+        st.caption(
+            "**Mise** (1-3 u) = value crédible dosée par la confiance (P(Top3)) : "
+            "3 u = value nette ET forte proba de placer. Aide au dosage, pas un "
+            "système gagnant. **Values/course ≥ 2** = course à surveiller "
+            "(plusieurs overlays, ou modèle très en désaccord avec le marché — "
+            "à croiser à l'œil, parfois signe d'une course ouverte).")
 g = dfj[(dfj.numero_reunion == sel.numero_reunion) & (dfj.numero_course == sel.numero_course)].copy()
 
 if st.sidebar.button("🔄 Rafraîchir les cotes en direct"):
