@@ -2,7 +2,7 @@
 # Séparé de requirements.txt (qui, lui, ne sert qu'à l'app Streamlit).
 pandas
 numpy
-scikit-learn
+scikit-learn==1.7.2
 psycopg2-binary
 joblib
 requests
