@@ -155,11 +155,25 @@ def ajoute_value(df, marge, cote_max=12.0):
             df.loc[idx, "p_marche"] = harville_top3(
                 win_probs_from_odds(cotes.fillna(cotes.max()).values))
     df["cote_pivot"] = (1.0 / df["p_top3"]).round(2)
-    df["value"] = df["p_top3"] / df["p_marche"] - 1.0
-    # ✅ seulement sur une value CREDIBLE : marché >= 12 % ET cote raisonnable
-    # (les gros outsiders = ratio qui explose = erreur du modèle, pas de l'edge)
-    df["VALUE_ok"] = ((df["value"] > marge) & (df["p_marche"] >= 0.12)
-                      & (df["cote_finale"] <= cote_max))
+    # --- value PLACÉ (modèle Top 3 vs marché placé implicite) --------------
+    df["value_place"] = df["p_top3"] / df["p_marche"] - 1.0
+    ok_place = ((df["value_place"] > marge) & (df["p_marche"] >= 0.12)
+                & (df["cote_finale"] <= cote_max))
+    # --- value GAGNANT (proba de gagner × cote gagnant), si dispo ----------
+    if "p_gagne" in df.columns and df["p_gagne"].notna().any():
+        df["value_gagnant"] = df["p_gagne"] * df["cote_finale"] - 1.0
+        ok_gagnant = ((df["value_gagnant"] > marge) & (df["p_gagne"] >= 0.08)
+                      & (df["cote_finale"] <= cote_max * 2))
+    else:
+        df["value_gagnant"] = np.nan
+        ok_gagnant = pd.Series(False, index=df.index)
+    # --- on garde le MEILLEUR pari crédible des deux marchés ---------------
+    vg = df["value_gagnant"].where(ok_gagnant, other=-np.inf)
+    vp = df["value_place"].where(ok_place, other=-np.inf)
+    df["type_pari"] = np.where(ok_gagnant & (vg >= vp), "Gagnant", "Placé")
+    df["VALUE_ok"] = ok_place | ok_gagnant
+    best = np.maximum(vg, vp)
+    df["value"] = np.where(np.isfinite(best), best, df["value_place"])
     if "heure_depart_ms" in df.columns:
         df["restant"] = df["heure_depart_ms"] / 1000.0 - time.time()
     else:
@@ -265,6 +279,7 @@ with onglet_top:
             "Course": "R" + cand["numero_reunion"].astype(str) + "C" + cand["numero_course"].astype(str),
             "N°": cand["numero"].astype("Int64"),
             "Cheval": cand["cheval"],
+            "Pari": cand["type_pari"],
             "Hippodrome": cand["hippodrome"],
             "Heure": cand["heure"],
             "Value %": (100 * cand["value"]).round(0),
@@ -318,6 +333,7 @@ with onglet_plan:
             "Heure": vals["heure"] if "heure" in vals else "",
             "N°": vals["numero"].astype("Int64"),
             "Cheval": vals["cheval"],
+            "Pari": vals["type_pari"],
             "Cote": vals["cote_finale"],
             "P(Top3)": (100 * vals["p_top3"]).round(1),
             "Value %": (100 * vals["value"]).round(0),
@@ -343,9 +359,22 @@ if st.sidebar.button("🔄 Rafraîchir les cotes en direct"):
         cf = g["cote_finale"]
         if cf.notna().sum() >= 4:
             g["p_marche"] = harville_top3(win_probs_from_odds(cf.fillna(cf.max()).values))
-            g["value"] = g["p_top3"] / g["p_marche"] - 1.0
-            g["VALUE_ok"] = ((g["value"] > marge) & (g["p_marche"] >= 0.12)
-                             & (g["cote_finale"] <= cote_max_value))
+            g["value_place"] = g["p_top3"] / g["p_marche"] - 1.0
+            okp = ((g["value_place"] > marge) & (g["p_marche"] >= 0.12)
+                   & (g["cote_finale"] <= cote_max_value))
+            if "p_gagne" in g.columns and g["p_gagne"].notna().any():
+                g["value_gagnant"] = g["p_gagne"] * g["cote_finale"] - 1.0
+                okg = ((g["value_gagnant"] > marge) & (g["p_gagne"] >= 0.08)
+                       & (g["cote_finale"] <= cote_max_value * 2))
+            else:
+                g["value_gagnant"] = np.nan
+                okg = pd.Series(False, index=g.index)
+            vg = g["value_gagnant"].where(okg, other=-np.inf)
+            vp = g["value_place"].where(okp, other=-np.inf)
+            g["type_pari"] = np.where(okg & (vg >= vp), "Gagnant", "Placé")
+            g["VALUE_ok"] = okp | okg
+            best = np.maximum(vg, vp)
+            g["value"] = np.where(np.isfinite(best), best, g["value_place"])
         st.sidebar.success(f"Cotes mises à jour ({len(live)}).")
     else:
         st.sidebar.warning("Cotes live indisponibles.")
@@ -363,6 +392,7 @@ with onglet_course:
         "Cheval": g["cheval"], "Driver": g["driver"],
         "P(Top3)": (100 * g["p_top3"]).round(1),
         "Cote pivot placé": g["cote_pivot"], "Cote": g["cote_finale"],
+        "Pari": g["type_pari"],
         "Value %": (100 * g["value"]).round(0),
         "✔": np.where(g["VALUE_ok"], "✅", ""), "Signaux": g["sig"],
     })
