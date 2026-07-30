@@ -96,13 +96,16 @@ def calc_signaux(g):
         s, fort = [], False
         cd, cf = r.get("cote_depart"), r.get("cote_finale")
         drift = (cd / cf) if (pd.notna(cd) and pd.notna(cf) and cf) else np.nan
-        if pd.notna(drift):
+        if pd.notna(drift) and pd.notna(cd) and pd.notna(cf) and cf and cd:
             mv = (drift - 1) * 100
-            if drift >= 1.40:
+            # variation de PROBA implicite (gagnant) : seul un vrai gain de proba
+            # compte -> 70->55 (+0,4 pt) n'est PAS du steam ; 3,0->2,4 (+9 pts) oui.
+            dp = 1.0 / cf - 1.0 / cd
+            if drift >= 1.40 and dp >= 0.05:
                 s.append(f"🔴🔥steam++ ({mv:+.0f}%)"); fort = True
-            elif drift >= 1.15:
+            elif drift >= 1.15 and dp >= 0.02:
                 s.append(f"🔥steam ({mv:+.0f}%)")
-            elif drift <= 0.85:
+            elif drift <= 0.85 and dp <= -0.02:
                 s.append(f"↘dérive ({mv:+.0f}%)")
         if r.get("premier_d4") == 1:
             s.append("1er déf.4")
