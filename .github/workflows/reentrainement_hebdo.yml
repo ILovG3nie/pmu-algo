@@ -32,11 +32,17 @@ jobs:
       - name: Installer les dépendances
         run: pip install -r requirements-maj.txt
 
-      - name: Réentraîner les modèles (placé + gagnant)
+      - name: Reconstruire les features puis réentraîner
         run: |
           set -e
+          python build_features.py
           python entrainer_modele.py
           python entrainer_gagnant.py
+
+      - name: Libérer l'espace Neon (features_partant est transitoire)
+        if: always()
+        run: |
+          python -c "import os,psycopg2;c=psycopg2.connect(host=os.environ['PGHOST'],port=os.environ['PGPORT'],user=os.environ['PGUSER'],password=os.environ['PGPASSWORD'],dbname=os.environ['PGDATABASE'],sslmode='require');cur=c.cursor();cur.execute('DROP TABLE IF EXISTS features_partant');c.commit();print('features_partant supprimee (espace libere)')"
 
       - name: Commit & push des modèles
         run: |
