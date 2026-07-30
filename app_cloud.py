@@ -279,15 +279,16 @@ with onglet_top:
             "Course": "R" + cand["numero_reunion"].astype(str) + "C" + cand["numero_course"].astype(str),
             "N°": cand["numero"].astype("Int64"),
             "Cheval": cand["cheval"],
-            "Pari": cand["type_pari"],
             "Hippodrome": cand["hippodrome"],
             "Heure": cand["heure"],
-            "Value %": (100 * cand["value"]).round(0),
+            "Value placé %": (100 * cand["value_place"]).round(0),
+            "Value gagnant %": (100 * cand["value_gagnant"]).round(0),
             "Mise": cand.apply(lambda r: f"{mise_conseillee(r['value'], r['p_top3'], True)}u", axis=1),
             "Départ dans": cand["restant"].apply(fmt_restant),
         })
         st.dataframe(top, hide_index=True, use_container_width=True, column_config={
-            "Value %": st.column_config.NumberColumn(format="%+.0f")})
+            "Value placé %": st.column_config.NumberColumn(format="%+.0f"),
+            "Value gagnant %": st.column_config.NumberColumn(format="%+.0f")})
 
 # ---- Sélecteur de course (pour les 2 autres onglets) ----------------------
 dfj = df[df["date_course"].astype(str) == date_sel]
@@ -333,17 +334,18 @@ with onglet_plan:
             "Heure": vals["heure"] if "heure" in vals else "",
             "N°": vals["numero"].astype("Int64"),
             "Cheval": vals["cheval"],
-            "Pari": vals["type_pari"],
             "Cote": vals["cote_finale"],
             "P(Top3)": (100 * vals["p_top3"]).round(1),
-            "Value %": (100 * vals["value"]).round(0),
+            "Value placé %": (100 * vals["value_place"]).round(0),
+            "Value gagnant %": (100 * vals["value_gagnant"]).round(0),
             "Values/course": vals["n_val"].astype(int),
             "Mise": vals["mise_u"].astype(int).astype(str) + "u",
         })
         st.dataframe(plan, hide_index=True, use_container_width=True, column_config={
             "P(Top3)": st.column_config.NumberColumn(format="%.1f"),
             "Cote": st.column_config.NumberColumn(format="%.1f"),
-            "Value %": st.column_config.NumberColumn(format="%+.0f")})
+            "Value placé %": st.column_config.NumberColumn(format="%+.0f"),
+            "Value gagnant %": st.column_config.NumberColumn(format="%+.0f")})
         st.caption(
             "**Mise** (1-3 u) = value crédible dosée par la confiance (P(Top3)) : "
             "3 u = value nette ET forte proba de placer. Aide au dosage, pas un "
@@ -392,15 +394,16 @@ with onglet_course:
         "Cheval": g["cheval"], "Driver": g["driver"],
         "P(Top3)": (100 * g["p_top3"]).round(1),
         "Cote pivot placé": g["cote_pivot"], "Cote": g["cote_finale"],
-        "Pari": g["type_pari"],
-        "Value %": (100 * g["value"]).round(0),
+        "Value placé %": (100 * g["value_place"]).round(0),
+        "Value gagnant %": (100 * g["value_gagnant"]).round(0),
         "✔": np.where(g["VALUE_ok"], "✅", ""), "Signaux": g["sig"],
     })
     st.dataframe(aff, hide_index=True, use_container_width=True, column_config={
         "P(Top3)": st.column_config.NumberColumn(format="%.1f"),
         "Cote pivot placé": st.column_config.NumberColumn(format="%.2f"),
         "Cote": st.column_config.NumberColumn(format="%.1f"),
-        "Value %": st.column_config.NumberColumn(format="%+.0f"),
+        "Value placé %": st.column_config.NumberColumn(format="%+.0f"),
+        "Value gagnant %": st.column_config.NumberColumn(format="%+.0f"),
     })
     st.markdown(
         "**Légende des signaux** (aide à la lecture, à croiser avec ton œil) :\n"
@@ -408,8 +411,10 @@ with onglet_course:
         "- **⏱record** : meilleur chrono passé du peloton (ou à 0,5 %) · **forme+** : place moyenne ≤ 3 sur ses dernières sorties\n"
         "- **ferrage✓** : ≥ 50 % de placé avec la ferrure du jour (≥ 3 courses) · **1er déf.4 / 1er déf.** : premier déferré (peut transformer)\n"
         "- **driver+** : driver ≥ 40 % de placé · **tandem✓** : couple cheval×driver ≥ 50 % (≥ 3 courses) · **hippo✓** : ≥ 50 % de placé sur cet hippodrome\n"
-        "- **✅** (colonne ✔) : value crédible (modèle > marché au-dessus de ta marge, hors purs outsiders)\n"
-        "- **Cote pivot placé** = 1/P(Top3) : la cote placé minimale pour que le pari soit intéressant.")
+        "- **✅** (colonne ✔) : au moins un des deux marchés offre une value crédible\n"
+        "- **Value placé %** vs **Value gagnant %** : la value sur chaque marché — à toi de choisir "
+        "(le gagnant paie plus mais sort moins souvent ; au backtest il perd moins que le placé)\n"
+        "- **Cote pivot placé** = 1/P(Top3) : la cote placé minimale pour que le pari placé soit intéressant.")
 
 with onglet_carte:
     barre_nav(f"R{sel.numero_reunion}C{sel.numero_course} — {sel.hippodrome}",
