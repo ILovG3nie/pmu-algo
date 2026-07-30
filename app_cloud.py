@@ -97,12 +97,13 @@ def calc_signaux(g):
         cd, cf = r.get("cote_depart"), r.get("cote_finale")
         drift = (cd / cf) if (pd.notna(cd) and pd.notna(cf) and cf) else np.nan
         if pd.notna(drift):
+            mv = (drift - 1) * 100
             if drift >= 1.40:
-                s.append("🔴🔥steam++"); fort = True
+                s.append(f"🔴🔥steam++ ({mv:+.0f}%)"); fort = True
             elif drift >= 1.15:
-                s.append("🔥steam")
+                s.append(f"🔥steam ({mv:+.0f}%)")
             elif drift <= 0.85:
-                s.append("↘dérive")
+                s.append(f"↘dérive ({mv:+.0f}%)")
         if r.get("premier_d4") == 1:
             s.append("1er déf.4")
         elif r.get("premier_dp") == 1 or r.get("premier_da") == 1:
@@ -110,36 +111,36 @@ def calc_signaux(g):
         rr = r.get("h_meilleure_reduc_hist")
         if pd.notna(rr) and pd.notna(best):
             if rr <= best * 1.002 and pd.notna(med) and rr <= med * 0.985:
-                s.append("🔴RECORD"); fort = True          # bien meilleur que le peloton
+                s.append("🔴RECORD (top peloton)"); fort = True   # bien meilleur que le peloton
             elif rr <= best * 1.005:
                 s.append("⏱record")
         nf, tf = (r.get("h_nb_meme_ferrure_hist") or 0), (r.get("h_taux_top3_meme_ferrure_hist") or 0)
         if nf >= 5 and tf >= 0.70:
-            s.append("🔴ferrage"); fort = True
+            s.append(f"🔴ferrage ({tf*100:.0f}%)"); fort = True
         elif nf >= 3 and tf >= 0.50:
-            s.append("ferrage✓")
+            s.append(f"ferrage✓ ({tf*100:.0f}%)")
         mp = r.get("mus_moy_pos5")
         if pd.notna(mp):
             if mp <= 1.8:
-                s.append("🔴forme"); fort = True
+                s.append(f"🔴forme (pos {mp:.1f})"); fort = True
             elif mp <= 3:
-                s.append("forme+")
+                s.append(f"forme+ (pos {mp:.1f})")
         dv = r.get("drv_taux_top3_hist") or 0
         if dv >= 0.55:
-            s.append("🔴driver"); fort = True
+            s.append(f"🔴driver ({dv*100:.0f}%)"); fort = True
         elif dv >= 0.40:
-            s.append("driver+")
+            s.append(f"driver+ ({dv*100:.0f}%)")
         cn, ct = (r.get("cd_nb_hist") or 0), (r.get("cd_taux_top3_hist") or 0)
         if cn >= 5 and ct >= 0.70:
-            s.append("🔴tandem"); fort = True
+            s.append(f"🔴tandem ({ct*100:.0f}%)"); fort = True
         elif cn >= 3 and ct >= 0.50:
-            s.append("tandem✓")
+            s.append(f"tandem✓ ({ct*100:.0f}%)")
         nbh = r.get("h_nb_sur_hippo_hist") or 0
         th = (r.get("h_top3_sur_hippo_hist") or 0) / nbh if nbh else 0
         if nbh >= 3 and th >= 0.70:
-            s.append("🔴hippo"); fort = True
+            s.append(f"🔴hippo ({th*100:.0f}%)"); fort = True
         elif nbh >= 2 and th >= 0.50:
-            s.append("hippo✓")
+            s.append(f"hippo✓ ({th*100:.0f}%)")
         return pd.Series([" ".join(s), fort])
 
     g[["sig", "fort"]] = g.apply(tags, axis=1)
@@ -381,9 +382,9 @@ if st.sidebar.button("🔄 Rafraîchir les cotes en direct"):
     else:
         st.sidebar.warning("Cotes live indisponibles.")
 
-g = g.sort_values("p_top3", ascending=False).reset_index(drop=True)
-g["rang"] = g.index + 1
+g["rang"] = g["p_top3"].rank(ascending=False, method="min").astype("Int64")  # rang = ordre modèle
 g = calc_signaux(g)
+g = g.sort_values("cote_finale", na_position="last").reset_index(drop=True)  # affichage trié par cote
 
 with onglet_course:
     titre = (f"R{sel.numero_reunion}C{sel.numero_course} — {sel.hippodrome} "
@@ -392,8 +393,9 @@ with onglet_course:
     aff = pd.DataFrame({
         "Rg": g["rang"], "N°": g["numero"].astype("Int64"),
         "Cheval": g["cheval"], "Driver": g["driver"],
+        "Cote": g["cote_finale"],
         "P(Top3)": (100 * g["p_top3"]).round(1),
-        "Cote pivot placé": g["cote_pivot"], "Cote": g["cote_finale"],
+        "Cote pivot placé": g["cote_pivot"],
         "Value placé %": (100 * g["value_place"]).round(0),
         "Value gagnant %": (100 * g["value_gagnant"]).round(0),
         "✔": np.where(g["VALUE_ok"], "✅", ""), "Signaux": g["sig"],
@@ -406,12 +408,17 @@ with onglet_course:
         "Value gagnant %": st.column_config.NumberColumn(format="%+.0f"),
     })
     st.markdown(
-        "**Légende des signaux** (aide à la lecture, à croiser avec ton œil) :\n"
-        "- **🔥steam** : cote qui raccourcit (argent tardif souvent informé) · **↘dérive** : cote qui monte\n"
-        "- **⏱record** : meilleur chrono passé du peloton (ou à 0,5 %) · **forme+** : place moyenne ≤ 3 sur ses dernières sorties\n"
-        "- **ferrage✓** : ≥ 50 % de placé avec la ferrure du jour (≥ 3 courses) · **1er déf.4 / 1er déf.** : premier déferré (peut transformer)\n"
-        "- **driver+** : driver ≥ 40 % de placé · **tandem✓** : couple cheval×driver ≥ 50 % (≥ 3 courses) · **hippo✓** : ≥ 50 % de placé sur cet hippodrome\n"
-        "- **✅** (colonne ✔) : au moins un des deux marchés offre une value crédible\n"
+        "**Légende des signaux** — le nombre entre parenthèses = **taux de placé "
+        "historique** (% sur 100) derrière le signal, pour en jauger le poids :\n"
+        "- **driver+ (48%)** : le driver place 48 % du temps · **tandem✓ (72%)** : le couple "
+        "cheval×driver place 72 % · **ferrage✓ (65%)** : 65 % de placé avec cette ferrure · "
+        "**hippo✓ (60%)** : 60 % de placé sur cet hippodrome\n"
+        "- **🔥steam (+18%)** : la cote a raccourci de 18 % (argent tardif souvent informé) · "
+        "**↘dérive (−x%)** : la cote monte · **forme+ (pos 2.4)** : position moyenne récente\n"
+        "- **⏱record / 🔴RECORD** : meilleur (ou quasi) chrono du peloton · **1er déf.4 / 1er déf.** : premier déferré (peut transformer)\n"
+        "- Un signal **🔴 rouge** = version forte (seuils élevés) · **✅** (colonne ✔) : au moins un des deux marchés offre une value crédible\n"
+        "- ⚠️ ces % sont **descriptifs** (historique), pas une garantie : sur petit "
+        "échantillon ils sont bruités, et le marché en price déjà l'essentiel\n"
         "- **Value placé %** vs **Value gagnant %** : la value sur chaque marché — à toi de choisir "
         "(le gagnant paie plus mais sort moins souvent ; au backtest il perd moins que le placé)\n"
         "- **Cote pivot placé** = 1/P(Top3) : la cote placé minimale pour que le pari placé soit intéressant.")

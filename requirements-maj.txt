@@ -1,0 +1,8 @@
+# Dépendances du job GitHub Actions (génération quotidienne du CSV).
+# Séparé de requirements.txt (qui, lui, ne sert qu'à l'app Streamlit).
+pandas
+numpy
+scikit-learn
+psycopg2-binary
+joblib
+requests

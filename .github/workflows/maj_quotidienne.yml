@@ -1,0 +1,51 @@
+name: MAJ quotidienne PMU
+
+# Tourne tout seul chaque matin (06:00 UTC ~ 08:00 Paris) et pousse
+# predictions_jour.csv. Bouton "Run workflow" aussi dispo pour tester à la main.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write        # autorise le push du CSV par le bot
+
+jobs:
+  maj:
+    runs-on: ubuntu-latest
+    env:                 # identifiants de la base Neon (mis dans Secrets du dépôt)
+      PGHOST: ${{ secrets.PGHOST }}
+      PGPORT: ${{ secrets.PGPORT }}
+      PGUSER: ${{ secrets.PGUSER }}
+      PGPASSWORD: ${{ secrets.PGPASSWORD }}
+      PGDATABASE: ${{ secrets.PGDATABASE }}
+      PGSSLMODE: require          # Neon exige le SSL
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer les dépendances
+        run: pip install -r requirements-maj.txt
+
+      - name: Générer les prédictions (aujourd'hui + demain)
+        run: |
+          set -e
+          D0=$(date -u +%F)
+          DM2=$(date -u -d "-2 day" +%F)
+          DP1=$(date -u -d "+1 day" +%F)
+          echo "Scraping $DM2 -> $DP1 (garde la forme fraîche + programmes à venir)"
+          python scraper_pmu.py "$DM2" "$DP1" --force
+          python build_features.py
+          python exporter_jour.py "$D0" "$DP1"
+
+      - name: Commit & push du CSV
+        run: |
+          git config user.name  "pmu-bot"
+          git config user.email "pmu-bot@users.noreply.github.com"
+          git add predictions_jour.csv
+          git commit -m "MAJ prédictions $(date -u +%F)" || echo "Rien à committer."
+          git push

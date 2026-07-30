@@ -1,0 +1,47 @@
+name: Réentraînement hebdo PMU
+
+# Chaque lundi 04:00 UTC (avant la MAJ quotidienne de 06:00), réentraîne les deux
+# modèles sur la base à jour et committe les .joblib. Le modèle continue donc
+# d'apprendre des courses jouées pendant les vacances.
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    env:
+      PGHOST: ${{ secrets.PGHOST }}
+      PGPORT: ${{ secrets.PGPORT }}
+      PGUSER: ${{ secrets.PGUSER }}
+      PGPASSWORD: ${{ secrets.PGPASSWORD }}
+      PGDATABASE: ${{ secrets.PGDATABASE }}
+      PGSSLMODE: require          # Neon exige le SSL
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer les dépendances
+        run: pip install -r requirements-maj.txt
+
+      - name: Réentraîner les modèles (placé + gagnant)
+        run: |
+          set -e
+          python entrainer_modele.py
+          python entrainer_gagnant.py
+
+      - name: Commit & push des modèles
+        run: |
+          git config user.name  "pmu-bot"
+          git config user.email "pmu-bot@users.noreply.github.com"
+          git add modele_top3.joblib modele_gagnant.joblib
+          git commit -m "Réentraînement modèles $(date -u +%F)" || echo "Aucun changement."
+          git push
