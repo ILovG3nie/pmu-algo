@@ -20,6 +20,7 @@ jobs:
       PGPASSWORD: ${{ secrets.PGPASSWORD }}
       PGDATABASE: ${{ secrets.PGDATABASE }}
       PGSSLMODE: require          # Neon exige le SSL
+      FEATURES_JOURS: "6"         # ne stocke que 6 jours de features (quota Neon)
       PYTHONIOENCODING: utf-8
     steps:
       - uses: actions/checkout@v4

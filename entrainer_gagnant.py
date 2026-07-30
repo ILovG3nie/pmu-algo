@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from backtest_roi import NUM_FEATURES, CAT_FEATURES, prepare_xy
+from build_features import compute_features, SQL_LOAD
 
 DB_DSN = dict(
     dbname=os.environ.get("PGDATABASE", "pmu_trot"),
@@ -48,15 +49,12 @@ def main():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         conn = psycopg2.connect(**DB_DSN)
-        df = pd.read_sql("""
-            SELECT f.*, r.place AS arrivee
-            FROM features_partant f
-            JOIN resultats r ON r.partant_id = f.partant_id
-            WHERE f.cible IS NOT NULL
-        """, conn)
+        df_raw = pd.read_sql(SQL_LOAD, conn)     # tables brutes (pas features_partant)
     conn.close()
+    df = compute_features(df_raw)                # features calculées EN MÉMOIRE
+    df = df[df["cible"].notna()].copy()
     df["date_course"] = pd.to_datetime(df["date_course"])
-    y = (df["arrivee"] == 1).astype(int)
+    y = (df["place"] == 1).astype(int)           # 'place' vient de SQL_LOAD
     print(f"{len(df)} partants | {int(y.sum())} gagnants ({100*y.mean():.1f}%).")
 
     X = prepare_xy(df, FEATURES, CAT_FEATURES)

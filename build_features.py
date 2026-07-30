@@ -350,6 +350,16 @@ def main():
     print(f"{len(df)} partants chargés.")
     feats = compute_features(df)[FEATURE_COLS]
 
+    # Option cloud : ne stocker que les N derniers jours (les features sont
+    # calculées sur TOUT l'historique en mémoire, mais on n'écrit qu'une petite
+    # fenêtre récente -> évite de saturer une base cloud à quota serré).
+    jours = os.environ.get("FEATURES_JOURS")
+    if jours:
+        d = pd.to_datetime(feats["date_course"])
+        seuil = d.max() - pd.Timedelta(days=int(jours))
+        feats = feats[d >= seuil]
+        print(f"Stockage limité aux {jours} derniers jours : {len(feats)} lignes.")
+
     # conversions pour insertion (NaN -> None, types Python natifs)
     feats = feats.astype(object).where(pd.notnull(feats), None)
     rows = [tuple(r) for r in feats.to_numpy()]

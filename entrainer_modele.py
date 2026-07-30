@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from backtest_roi import NUM_FEATURES, CAT_FEATURES, prepare_xy
+from build_features import compute_features, SQL_LOAD
 
 DB_DSN = dict(
     dbname=os.environ.get("PGDATABASE", "pmu_trot"),
@@ -48,8 +49,10 @@ def main():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         conn = psycopg2.connect(**DB_DSN)
-        df = pd.read_sql("SELECT * FROM features_partant WHERE cible IS NOT NULL", conn)
+        df_raw = pd.read_sql(SQL_LOAD, conn)     # tables brutes (pas features_partant)
     conn.close()
+    df = compute_features(df_raw)                # features calculées EN MÉMOIRE
+    df = df[df["cible"].notna()].copy()
     print(f"{len(df)} partants avec résultat pour l'entraînement.")
 
     df["date_course"] = pd.to_datetime(df["date_course"])
